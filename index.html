@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Piano Python — un piano en Python</title>
+  <meta name="description" content="Un piano de 88 touches jouable au clavier, à la souris et au doigt, qui interprète tout seul sept grands classiques. Écrit en Python (NumPy, mido, Pyodide) par Alexandre Besnier.">
+  <meta name="author" content="Alexandre Besnier">
+  <meta name="theme-color" content="#0c0d12">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="python">
+  <header class="entete">
+    <h1 class="marque">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>Piano <b>Python</b></span>
+    </h1>
+    <p class="statut" id="statut" role="status" aria-live="polite">
+      <span class="statut-point" aria-hidden="true"></span>
+      <span id="statut-texte">Démarrage de Python…</span>
+    </p>
+  </header>
+
+  <main>
+    <h2 class="sr" id="titre-morceaux">Morceaux</h2>
+    <ol class="cartes" id="cartes" aria-labelledby="titre-morceaux"></ol>
+
+    <div class="meuble">
+      <div class="feutre" aria-hidden="true"></div>
+      <div class="clavier" id="clavier" role="application" aria-label="Clavier de piano, 88 touches"></div>
+      <div class="apercu" id="apercu" hidden>
+        <canvas id="apercu-canvas" aria-hidden="true"></canvas>
+        <div class="apercu-fenetre" id="apercu-fenetre"></div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="pied">
+    <p class="aide">
+      Clavier <button class="disposition" id="disposition" type="button" title="Changer la disposition du clavier">AZERTY</button>&nbsp;:
+      <kbd id="aide-bas">W</kbd>–<kbd id="aide-bas-fin">!</kbd> et <kbd id="aide-haut">A</kbd>–<kbd id="aide-haut-fin">$</kbd>
+      · <kbd>Espace</kbd> pédale · <kbd>←</kbd> <kbd>→</kbd> octave · <kbd>Échap</kbd> arrêt
+    </p>
+    <p>Conçu et développé par <strong>Alexandre Besnier</strong> · <a href="https://github.com/aL00ss/piano-python" rel="noopener">code source</a></p>
+    <p class="sources">Partitions&nbsp;: <a href="https://www.mutopiaproject.org" rel="noopener">Mutopia Project</a> (domaine public ; CC BY-SA 2.5 pour la Sonate au clair de lune). Son entièrement synthétisé en Python avec NumPy, exécuté dans le navigateur par <a href="https://pyodide.org" rel="noopener">Pyodide</a>.</p>
+  </footer>
+
+  <!-- Seul JavaScript de la page : lancer l'interpréteur Python. Tout le reste est dans python/. -->
+  <script type="module">
+    import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.mjs";
+
+    const FICHIERS = ["piano/__init__.py", "piano/theorie.py", "piano/morceau.py", "piano/synthese.py", "piano/analyse.py", "app.py"];
+    const statut = (texte) => (document.querySelector("#statut-texte").textContent = texte);
+
+    try {
+      const pyodide = await loadPyodide();
+      statut("Chargement de NumPy…");
+      await pyodide.loadPackage(["numpy", "packaging"], { messageCallback: () => {} });
+      // mido (lecture des fichiers MIDI) est fourni avec le site, sous forme de paquet wheel
+      const roue = await fetch("vendor/mido-1.3.3-py3-none-any.whl");
+      pyodide.unpackArchive(await roue.arrayBuffer(), "wheel");
+      pyodide.FS.mkdirTree("/home/pyodide/piano");
+      await Promise.all(FICHIERS.map(async (fichier) => {
+        const reponse = await fetch(`python/${fichier}`);
+        if (!reponse.ok) throw new Error(`python/${fichier} introuvable`);
+        pyodide.FS.writeFile(`/home/pyodide/${fichier}`, await reponse.text());
+      }));
+      await pyodide.runPythonAsync("import app\nawait app.demarrer()");
+    } catch (erreur) {
+      console.error(erreur);
+      statut("Le piano n'a pas pu être chargé.");
+      document.body.classList.add("erreur");
+    }
+  </script>
+</body>
+</html>

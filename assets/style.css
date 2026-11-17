@@ -1,0 +1,590 @@
+/* Piano — une page sobre : les morceaux, le clavier.
+   La couleur d'accent est définie par la classe du <body> (js ou python). */
+
+:root {
+  color-scheme: dark;
+  --fond: #0c0d12;
+  --fond-2: #12141b;
+  --panneau: #181b25;
+  --bord: #272b38;
+  --texte: #eceef4;
+  --discret: #9aa1b4;
+  --ivoire: #f6f3ea;
+  --rayon: 14px;
+  --marge: clamp(16px, 3vw, 40px);
+  --police: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+body.js {
+  --accent: #f7df1e;
+  --accent-texte: #17140a;
+  --main-d: #f7df1e;
+  --main-d-sombre: #cdb70c;
+  --main-g: #ff7d5c;
+  --main-g-sombre: #d9573a;
+  --main-direct: #7fd6ff;
+  --main-direct-sombre: #3fa9dc;
+}
+
+body.python {
+  --accent: #ffd43b;
+  --accent-texte: #17140a;
+  --main-d: #ffd43b;
+  --main-d-sombre: #d6ac17;
+  --main-g: #5fb0ee;
+  --main-g-sombre: #3a82c4;
+  --main-direct: #c4a7ff;
+  --main-direct-sombre: #9273e0;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  background: linear-gradient(var(--fond), var(--fond-2));
+  color: var(--texte);
+  font: 15px/1.5 var(--police);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.7em;
+  padding: 0 0.4em;
+  border: 1px solid var(--bord);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--panneau);
+  color: var(--texte);
+  font: 600 0.85em/1.6 var(--police);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ en-tête */
+
+.entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px var(--marge);
+}
+
+.marque {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font: 700 17px/1 var(--police);
+  letter-spacing: 0.01em;
+}
+
+.marque b {
+  color: var(--accent);
+}
+
+.logo {
+  display: inline-flex;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 8px;
+  background: var(--accent);
+}
+
+.logo i {
+  width: 5px;
+  height: 18px;
+  border-radius: 1.5px;
+  background: var(--accent-texte);
+}
+
+.logo i:nth-child(2) {
+  height: 11px;
+  align-self: flex-start;
+}
+
+.statut {
+  --ratio: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--bord);
+  border-radius: 99px;
+  color: var(--discret);
+  font-size: 13px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent) calc(var(--ratio) * 100%), transparent 0);
+}
+
+.statut #statut-texte {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pret .statut {
+  background: none;
+}
+
+.statut-point {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--discret);
+  animation: pouls 1s ease-in-out infinite alternate;
+}
+
+.pret .statut-point {
+  background: #4ade80;
+  animation: none;
+}
+
+.erreur .statut-point {
+  background: #f87171;
+  animation: none;
+}
+
+@keyframes pouls {
+  to {
+    opacity: 0.25;
+  }
+}
+
+/* ------------------------------------------------------------------ morceaux */
+
+main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(20px, 5vh, 48px);
+  padding-block: clamp(8px, 3vh, 32px);
+}
+
+.cartes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0 var(--marge);
+  list-style: none;
+}
+
+.carte {
+  --ratio: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "num icone" "titre titre" "auteur auteur" "meta meta";
+  grid-template-rows: auto 1fr auto auto;
+  gap: 2px 8px;
+  width: 100%;
+  height: 100%;
+  min-height: 132px;
+  padding: 12px 14px 16px;
+  border: 1px solid var(--bord);
+  border-radius: var(--rayon);
+  background: var(--panneau);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.carte:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--bord));
+}
+
+.carte.en-cours {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--panneau));
+}
+
+.carte-num {
+  grid-area: num;
+  align-self: center;
+  color: var(--discret);
+  font: 600 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.carte-titre {
+  grid-area: titre;
+  align-self: end;
+  margin-top: 8px;
+  font: 600 17px/1.2 var(--serif);
+  text-wrap: balance;
+}
+
+.carte-auteur {
+  grid-area: auteur;
+  color: var(--discret);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.carte-meta {
+  grid-area: meta;
+  margin-top: 4px;
+  color: var(--discret);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Icône : triangle « lecture », qui devient un égaliseur pendant la lecture */
+.carte-icone {
+  grid-area: icone;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.carte-icone i {
+  display: none;
+  width: 3px;
+  height: 10px;
+  margin-bottom: 8px;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+}
+
+.carte-icone::before {
+  content: "";
+  align-self: center;
+  margin-left: 3px;
+  border: 6px solid transparent;
+  border-left: 9px solid currentColor;
+  border-right-width: 0;
+}
+
+.carte.en-cours .carte-icone {
+  background: var(--accent);
+  color: var(--accent-texte);
+}
+
+.carte.en-cours .carte-icone::before {
+  display: none;
+}
+
+.carte.en-cours .carte-icone i {
+  display: block;
+  animation: egaliseur 0.7s ease-in-out infinite alternate;
+}
+
+.carte.en-cours .carte-icone i:nth-child(2) {
+  animation-delay: -0.35s;
+}
+
+.carte.en-cours .carte-icone i:nth-child(3) {
+  animation-delay: -0.55s;
+}
+
+.carte.charge .carte-icone {
+  animation: pouls 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes egaliseur {
+  from {
+    transform: scaleY(0.35);
+  }
+  to {
+    transform: scaleY(1.1);
+  }
+}
+
+/* Avancement du morceau, au bas du bouton */
+.carte-barre {
+  position: absolute;
+  inset: auto 0 0;
+  height: 4px;
+}
+
+.carte-barre i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(var(--ratio));
+  transform-origin: left;
+  opacity: 0;
+}
+
+.carte.en-cours .carte-barre i {
+  opacity: 1;
+}
+
+/* -------------------------------------------------------------------- clavier */
+
+.meuble {
+  border-block: 1px solid var(--bord);
+  background: #08080b;
+}
+
+.feutre {
+  height: 5px;
+  background: linear-gradient(#7c1322, #b01d33 45%, #5d0e1a);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+.clavier {
+  position: relative;
+  height: clamp(160px, 30vh, 270px);
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+
+body:not(.pret) .clavier {
+  opacity: 0.5;
+}
+
+/* Version Python : chaque touche s'éclaire dès que sa note est synthétisée */
+body.python:not(.pret) .clavier {
+  opacity: 1;
+}
+
+.touche.attente {
+  filter: brightness(0.45);
+}
+
+.clavier-piste {
+  --w: 24px;
+  position: absolute;
+  inset: 0 auto 0 0;
+  will-change: transform;
+}
+
+.clavier-piste.anime {
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.touche {
+  position: absolute;
+  top: 0;
+  left: calc(var(--x) * var(--w));
+  width: calc(var(--l) * var(--w));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.blanche {
+  height: 100%;
+  padding-bottom: 7px;
+  border-radius: 0 0 5px 5px;
+  background: linear-gradient(#fbf9f2 0%, var(--ivoire) 70%, #dedacd 100%);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.28), inset 0 -5px 0 rgba(0, 0, 0, 0.09);
+  color: #6b6658;
+}
+
+.noire {
+  z-index: 2;
+  height: 63%;
+  padding-bottom: 6px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, #1c1d22, #34363f 22%, #18191d 80%, #0c0c0f);
+  box-shadow: inset 0 -7px 0 rgba(255, 255, 255, 0.07), 0 3px 4px rgba(0, 0, 0, 0.55);
+  color: #a9adba;
+}
+
+.lettre {
+  font: 700 11px/1 var(--police);
+}
+
+.noire .lettre {
+  font-size: 10px;
+}
+
+.nom {
+  margin-top: 4px;
+  font: 500 9px/1 var(--police);
+  opacity: 0.6;
+}
+
+/* Touches reliées au clavier de l'ordinateur : un léger reflet coloré */
+.reliee.blanche:not(.active, .main-d, .main-g) {
+  background: linear-gradient(#fbf9f2 0%, var(--ivoire) 62%, color-mix(in srgb, var(--accent) 32%, #dedacd) 100%);
+}
+
+/* Touches enfoncées : --jeu est la couleur de la main qui joue */
+.touche.main-g {
+  --jeu: var(--main-g);
+  --jeu-sombre: var(--main-g-sombre);
+}
+
+.touche.main-d {
+  --jeu: var(--main-d);
+  --jeu-sombre: var(--main-d-sombre);
+}
+
+.touche.active {
+  --jeu: var(--main-direct);
+  --jeu-sombre: var(--main-direct-sombre);
+}
+
+.blanche:is(.active, .main-d, .main-g) {
+  background: linear-gradient(color-mix(in srgb, var(--jeu) 45%, #fbf9f2), var(--jeu) 92%);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.28), inset 0 -2px 0 rgba(0, 0, 0, 0.18), inset 0 6px 10px rgba(0, 0, 0, 0.12);
+  color: #1b1a14;
+}
+
+.noire:is(.active, .main-d, .main-g) {
+  background: linear-gradient(var(--jeu-sombre), var(--jeu));
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.55);
+  color: #1b1a14;
+}
+
+/* Réglette : aperçu du clavier complet, quand il dépasse de l'écran */
+.apercu {
+  position: relative;
+  height: 32px;
+  border-top: 1px solid #000;
+  touch-action: none;
+  cursor: grab;
+}
+
+.apercu canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.5;
+}
+
+.apercu-fenetre {
+  position: absolute;
+  inset-block: 0;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------------- pied */
+
+.pied {
+  padding: 14px var(--marge) 22px;
+  color: var(--discret);
+  font-size: 13px;
+  text-align: center;
+}
+
+.pied p {
+  margin: 0 0 6px;
+}
+
+.pied strong {
+  color: var(--texte);
+}
+
+.pied .aide {
+  line-height: 2;
+}
+
+.pied .sources {
+  max-width: 100ch;
+  margin-inline: auto;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.disposition {
+  padding: 1px 8px;
+  border: 1px solid var(--bord);
+  border-radius: 6px;
+  background: var(--panneau);
+  color: var(--texte);
+  font: 600 12px/1.6 var(--police);
+  cursor: pointer;
+}
+
+.disposition:hover {
+  border-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- adaptatif */
+
+@media (max-width: 760px) {
+  .cartes {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+  }
+
+  .cartes li {
+    flex: 0 0 164px;
+    scroll-snap-align: start;
+  }
+}
+
+@media (pointer: coarse) {
+  .pied .aide {
+    display: none; /* pas de clavier physique sur un écran tactile */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
