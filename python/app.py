@@ -18,6 +18,7 @@ from pyodide.ffi import create_once_callable, create_proxy, to_js
 
 from piano import morceau as lecture_midi
 from piano import synthese
+from piano import recherche
 from piano.analyse import resumer
 from piano.theorie import (BASE_DEFAUT, HAUTEUR_NOIRE, NB_BLANCHES, NOTE_MAX, NOTE_MIN, PAR_MIDI, TOUCHES,
                            caractere, decaler_base, etiquettes, formater_duree, nom_francais, note_du_code,
@@ -624,7 +625,10 @@ class Application:
         if e.ctrlKey or e.metaKey or e.altKey:
             return
         code = e.code
-        sur_glissiere = e.target.tagName == "INPUT"
+        dans_un_input = e.target.tagName == "INPUT"
+        if dans_un_input and e.target.type != "range":
+            return  # on écrit dans la recherche : les touches ne jouent pas
+        sur_glissiere = dans_un_input
         if code == "Escape":
             self.lecteur.arreter()
             return
@@ -791,12 +795,19 @@ class Application:
         if self.courant and self.courant["id"] == fiche["id"] and self.lecteur.etat == "pause":
             self.lecteur.reprendre()
             return
-        carte = document.querySelector(f'.carte[data-id="{fiche["id"]}"]')
-        carte.classList.add("charge")
+        # un morceau trouvé en ligne n'a pas de carte : la barre de lecture et le statut suffisent
+        carte = document.querySelector(f'.carte[data-id="{window.CSS.escape(fiche["id"])}"]')
+        if carte:
+            carte.classList.add("charge")
+        if fiche.get("enLigne"):
+            self.statut_texte.textContent = f"Chargement de « {fiche['titre']} »…"
         try:
             morceau = await self.charger_morceau(fiche)
             await self.pret.wait()
             if demande != self.demande:
+                return
+            if not morceau.notes:
+                self.statut_texte.textContent = "Ce fichier ne contient aucune note jouable au piano."
                 return
             # Sans sortie audio utilisable, on ne reste pas figé : le morceau est mis en attente
             # et démarrera tout seul dès que le son sera revenu.
@@ -814,7 +825,8 @@ class Application:
             window.console.error(str(erreur))
             self.statut_texte.textContent = "Impossible de charger ce morceau."
         finally:
-            carte.classList.remove("charge")
+            if carte:
+                carte.classList.remove("charge")
 
     def maj_cartes(self, _etat: str = "") -> None:
         etat = self.lecteur.etat
@@ -838,6 +850,73 @@ class Application:
         self.maj_barre()
 
     # ------------------------------------------------------------- barre de lecture
+
+    # ------------------------------------------------------------ recherche en ligne
+    # La liste de suggestions est celle d'autoComplete.js ; Python interroge BitMidi, construit
+    # les résultats et joue aussitôt celui qui est choisi (aucun bouton n'est ajouté à la page).
+
+    def brancher_recherche(self) -> None:
+        champ = document.querySelector("#recherche")
+        etat = {"erreur": False}
+
+        async def source(requete):
+            champ.setAttribute("aria-busy", "true")
+            try:
+                reponse = await fetch(recherche.adresse(str(requete)))
+                if not reponse.ok:
+                    raise OSError(f"HTTP {reponse.status}")
+                resultats = recherche.fiches(json.loads(await reponse.text()))
+                etat["erreur"] = False
+            except Exception:
+                resultats = []
+                etat["erreur"] = True
+            finally:
+                champ.removeAttribute("aria-busy")
+            return to_js(resultats, dict_converter=Object.fromEntries)
+
+        def liste(element, donnees) -> None:
+            if donnees.results.length:
+                return
+            vide = document.createElement("li")
+            vide.className = "resultat-vide"
+            vide.textContent = ("Recherche indisponible pour le moment : vérifiez la connexion." if etat["erreur"]
+                                else f"Aucune partition trouvée pour « {donnees.query} ».")
+            element.append(vide)
+
+        def resultat(element, donnees) -> None:
+            fiche = donnees.value
+            element.replaceChildren()
+            for classe, texte in (("resultat-icone", ""), ("resultat-titre", fiche.titre),
+                                  ("resultat-meta", f"{recherche.formater_nombre(fiche.ecoutes)} écoutes")):
+                span = document.createElement("span")
+                span.className = classe
+                span.textContent = texte
+                element.append(span)
+            element.title = fiche.oeuvre
+
+        def selection(evenement) -> None:
+            valeur = evenement.detail.selection.value
+            fiche = {cle: getattr(valeur, cle) for cle in
+                     ("id", "titre", "compositeur", "oeuvre", "fichier", "duree", "ecoutes", "enLigne")}
+            champ.value = fiche["titre"]
+            champ.blur()
+            self.reveiller_le_son()  # le choix se fait par un clic ou Entrée : le son peut démarrer
+            asyncio.ensure_future(self.choisir(fiche))
+
+        options = {
+            "selector": "#recherche",
+            "threshold": 2,
+            "debounce": 350,
+            "submit": False,
+            "data": {"src": proxy(source), "keys": ["titre"], "cache": False},
+            # BitMidi a déjà trié les résultats : on les garde tous, échappés
+            "searchEngine": proxy(lambda _requete, valeur: recherche.echapper(valeur)),
+            "resultsList": {"class": "resultats", "maxResults": 15, "noResults": True, "tabSelect": True,
+                            "element": proxy(liste)},
+            "resultItem": {"class": "resultat", "selected": "resultat-actif", "element": proxy(resultat)},
+            "events": {"input": {"selection": proxy(selection)}},
+        }
+        self.recherche = window.autoComplete.new(to_js(options, dict_converter=Object.fromEntries))
 
     # ---------------------------------------------------------------- sortie audio
     # Le piano s'adapte tout seul aux changements de sortie audio (casque branché, sortie changée
@@ -1172,6 +1251,7 @@ class Application:
         cartes = document.querySelector("#cartes")
         for rang, fiche in enumerate(self.catalogue):
             cartes.append(self.creer_carte(fiche, rang))
+        self.brancher_recherche()
         asyncio.ensure_future(self.brancher_midi())
         self.surveiller_sortie()
         await self.synthetiser_le_piano()

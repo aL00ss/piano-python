@@ -7,6 +7,8 @@ from bisect import bisect_left
 from dataclasses import dataclass, field
 
 CONTROLEUR_PEDALE = 64
+CANAL_PERCUSSIONS = 9  # canal 10 en General MIDI : la batterie, injouable au piano
+NOTE_MIN, NOTE_MAX = 21, 108  # les 88 touches
 
 
 @dataclass
@@ -102,10 +104,13 @@ def charger(octets: bytes, titre: str = "") -> Morceau:
 
     Les instants sont convertis de tics en secondes en suivant la carte de tempo du
     fichier : le morceau est donc joué au tempo voulu, changements de mouvement compris.
+    Les fichiers trouvés en ligne peuvent contenir d'autres instruments : la batterie et les
+    notes hors des 88 touches sont ignorées, tout le reste est joué au piano.
     """
     import mido
 
-    fichier = mido.MidiFile(file=io.BytesIO(octets))
+    # clip : les fichiers trouvés en ligne ne sont pas toujours parfaitement conformes
+    fichier = mido.MidiFile(file=io.BytesIO(octets), clip=True)
     # Les pistes sont fusionnées en gardant, pour chaque message, sa piste d'origine.
     messages = []
     for indice, piste in enumerate(fichier.tracks):
@@ -126,6 +131,9 @@ def charger(octets: bytes, titre: str = "") -> Morceau:
         dernier_tic = tic
         if message.type == "set_tempo":
             tempo = message.tempo
+        elif message.type in ("note_on", "note_off") and (
+                message.channel == CANAL_PERCUSSIONS or not NOTE_MIN <= message.note <= NOTE_MAX):
+            continue
         elif message.type == "note_on" and message.velocity > 0:
             ouvertes.setdefault((piste, message.note), []).append((secondes, message.velocity / 127))
         elif message.type in ("note_off", "note_on"):

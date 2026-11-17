@@ -23,6 +23,10 @@
   </header>
 
   <main>
+    <div class="recherche">
+      <label class="sr" for="recherche">Rechercher une partition de piano en ligne</label>
+      <input class="recherche-champ" id="recherche" type="search" placeholder="Rechercher une partition en ligne : Chopin, Satie, Gymnopédie…" autocomplete="off" spellcheck="false" enterkeyhint="search">
+    </div>
     <h2 class="sr" id="titre-morceaux">Morceaux</h2>
     <ol class="cartes" id="cartes" aria-labelledby="titre-morceaux"></ol>
 
@@ -65,14 +69,16 @@
       · <kbd>Espace</kbd> pédale · <kbd>←</kbd> <kbd>→</kbd> octave · <kbd>Entrée</kbd> lecture/pause · <kbd>Échap</kbd> arrêt
     </p>
     <p>Conçu et développé par <strong>Alexandre Besnier</strong> · <a href="https://github.com/aL00ss/piano-python" rel="noopener">code source</a></p>
-    <p class="sources">Partitions&nbsp;: <a href="https://www.mutopiaproject.org" rel="noopener">Mutopia Project</a> (domaine public ; CC BY-SA 2.5 pour la Sonate au clair de lune). Son entièrement synthétisé en Python avec NumPy, exécuté dans le navigateur par <a href="https://pyodide.org" rel="noopener">Pyodide</a>.</p>
+    <p class="sources">Partitions&nbsp;: <a href="https://www.mutopiaproject.org" rel="noopener">Mutopia Project</a> (domaine public ; CC BY-SA 2.5 pour la Sonate au clair de lune). Son entièrement synthétisé en Python avec NumPy, exécuté dans le navigateur par <a href="https://pyodide.org" rel="noopener">Pyodide</a>. Recherche en ligne&nbsp;: <a href="https://bitmidi.com" rel="noopener">BitMidi</a>, avec <a href="https://tarekraafat.github.io/autoComplete.js/" rel="noopener">autoComplete.js</a>.</p>
   </footer>
 
+  <!-- Bibliothèque d'interface de la barre de recherche, pilotée depuis Python. -->
+  <script src="vendor/autoComplete.min.js"></script>
   <!-- Seul JavaScript de la page : lancer l'interpréteur Python. Tout le reste est dans python/. -->
   <script type="module">
     import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.mjs";
 
-    const FICHIERS = ["piano/__init__.py", "piano/theorie.py", "piano/morceau.py", "piano/synthese.py", "piano/analyse.py", "app.py"];
+    const FICHIERS = ["piano/__init__.py", "piano/theorie.py", "piano/morceau.py", "piano/synthese.py", "piano/analyse.py", "piano/recherche.py", "app.py"];
     const statut = (texte) => (document.querySelector("#statut-texte").textContent = texte);
 
     try {

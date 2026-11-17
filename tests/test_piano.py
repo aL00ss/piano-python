@@ -16,7 +16,7 @@ sys.path.insert(0, str(RACINE / "python"))
 
 import numpy as np  # noqa: E402
 
-from piano import analyse, morceau, synthese, theorie  # noqa: E402
+from piano import analyse, morceau, recherche, synthese, theorie  # noqa: E402
 from piano.morceau import Note  # noqa: E402
 
 CATALOGUE = json.loads((RACINE / "midi" / "catalogue.json").read_text(encoding="utf-8"))
@@ -156,6 +156,49 @@ class TestAnalyse(unittest.TestCase):
         self.assertEqual(r["polyphonie"], 3)
         self.assertEqual((r["main_droite"], r["main_gauche"]), (2, 1))
         self.assertEqual(analyse.resumer(morceau.preparer([]))["notes"], 0)
+
+
+
+class TestRecherche(unittest.TestCase):
+    def test_noms_lisibles(self):
+        self.assertEqual(recherche.nom_lisible("chopin-ballade_1.mid"), "chopin ballade 1")
+        self.assertEqual(recherche.nom_lisible("Clair-De-Lune.MIDI"), "Clair De Lune")
+        self.assertEqual(recherche.nom_lisible(".mid"), "Sans titre")
+
+    def test_les_noms_sont_echappes(self):
+        self.assertEqual(recherche.echapper('<img src=x onerror="alert(1)">'),
+                         "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;")
+
+    def test_adresse_et_fiches(self):
+        self.assertEqual(recherche.adresse("satie gymnopédie"),
+                         "https://bitmidi.com/api/midi/search?q=satie%20gymnop%C3%A9die&page=0")
+        reponse = {"result": {"results": [
+            {"id": 23776, "name": "chopin-ballade1.mid", "downloadUrl": "/uploads/23776.mid", "plays": 10781},
+            {"id": 2, "name": "sans-fichier.mid"},
+        ]}}
+        self.assertEqual(recherche.fiches(reponse), [{
+            "id": "bitmidi-23776", "titre": "chopin ballade1", "compositeur": "BitMidi",
+            "oeuvre": "chopin-ballade1.mid", "fichier": "https://bitmidi.com/uploads/23776.mid",
+            "duree": 0, "ecoutes": 10781, "enLigne": True}])
+        self.assertEqual(recherche.fiches({}), [])
+        self.assertEqual(recherche.formater_nombre(10781), "10\u202f781")
+
+    def test_batterie_et_notes_hors_clavier_ignorees(self):
+        import io
+
+        import mido
+        fichier = mido.MidiFile()
+        for canal, hauteurs in ((0, (60, 12, 120)), (9, (36, 38)), (1, (48,))):
+            piste = mido.MidiTrack()
+            for hauteur in hauteurs:
+                piste.append(mido.Message("note_on", channel=canal, note=hauteur, velocity=80, time=0))
+                piste.append(mido.Message("note_off", channel=canal, note=hauteur, velocity=0, time=240))
+            fichier.tracks.append(piste)
+        tampon = io.BytesIO()
+        fichier.save(file=tampon)
+        m = morceau.charger(tampon.getvalue())
+        self.assertEqual(sorted(n.midi for n in m.notes), [48, 60])
+        self.assertEqual(sorted(n.main for n in m.notes), [0, 1])
 
 
 if __name__ == "__main__":

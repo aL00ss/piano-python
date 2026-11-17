@@ -36,6 +36,15 @@ réessaie ; dès que le son revient, le morceau démarre ou reprend là où il s
 est joué **au tempo de sa partition**, changements de mouvement, points d'orgue et ralentis
 compris, avec ses nuances et sa pédale. On peut jouer par-dessus pendant la lecture.
 
+## Rechercher une partition en ligne
+
+La barre de recherche, au-dessus des morceaux, interroge [BitMidi](https://bitmidi.com) (plus de
+100 000 fichiers MIDI). Un clic sur un résultat (ou `↓` puis `Entrée`) le joue aussitôt au piano,
+sans ajouter de bouton : la barre de lecture le contrôle comme les autres morceaux. La batterie
+et les notes hors des 88 touches sont ignorées ; les noms venus d'Internet sont affichés comme du
+texte. La liste de suggestions est celle d'[autoComplete.js](https://tarekraafat.github.io/autoComplete.js/)
+(sans dépendance, fournie dans `vendor/`).
+
 ## Jouer
 
 | Moyen | Comment |
@@ -98,9 +107,10 @@ python/piano/theorie.py       notes, fréquences, géométrie, touches du clavie
 python/piano/morceau.py       lecture MIDI (mido), pédale
 python/piano/synthese.py      synthèse du piano (NumPy)
 python/piano/analyse.py       tonalité, tessiture, polyphonie
+python/piano/recherche.py     recherche de partitions en ligne (BitMidi)
 midi/                         les sept morceaux
 outils/                       préparation des morceaux
-vendor/                       paquet mido
+vendor/                       paquet mido et autoComplete.js
 tests/                        tests unitaires
 ```
 
@@ -109,7 +119,7 @@ tests/                        tests unitaires
 ```bash
 python -m http.server 8000                  # puis ouvrir http://localhost:8000
 pip install numpy mido                      # pour les tests
-python -m unittest discover -s tests -v     # 17 tests
+python -m unittest discover -s tests -v     # 21 tests
 ```
 
 > Le site doit être servi en HTTP (pas ouvert en `file://`).
