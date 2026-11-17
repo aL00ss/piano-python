@@ -26,6 +26,28 @@
     <h2 class="sr" id="titre-morceaux">Morceaux</h2>
     <ol class="cartes" id="cartes" aria-labelledby="titre-morceaux"></ol>
 
+    <section class="lecture" id="lecture" aria-label="Lecture du morceau" data-etat="arret">
+      <button class="lecture-bouton" id="lecture-bouton" type="button" aria-label="Lecture" title="Lecture / pause (Entrée)" disabled>
+        <span class="lecture-icone" aria-hidden="true"></span>
+      </button>
+      <div class="lecture-piste">
+        <span class="lecture-titre" id="lecture-titre">Choisissez un morceau</span>
+        <div class="lecture-ligne">
+          <span class="lecture-temps" id="lecture-position">0:00</span>
+          <input class="glissiere lecture-barre" id="lecture-barre" type="range" min="0" max="1000" step="1" value="0" aria-label="Position dans le morceau" disabled>
+          <span class="lecture-temps" id="lecture-duree">0:00</span>
+        </div>
+      </div>
+      <label class="reglage">
+        <span>Tempo <output id="tempo-valeur" for="tempo">100&nbsp;%</output></span>
+        <input class="glissiere" id="tempo" type="range" min="50" max="150" step="5" value="100" aria-label="Tempo">
+      </label>
+      <label class="reglage">
+        <span>Volume <output id="volume-valeur" for="volume">75&nbsp;%</output></span>
+        <input class="glissiere" id="volume" type="range" min="0" max="100" step="1" value="75" aria-label="Volume">
+      </label>
+    </section>
+
     <div class="meuble">
       <div class="feutre" aria-hidden="true"></div>
       <div class="clavier" id="clavier" role="application" aria-label="Clavier de piano, 88 touches"></div>
@@ -40,7 +62,7 @@
     <p class="aide">
       Clavier <button class="disposition" id="disposition" type="button" title="Changer la disposition du clavier">AZERTY</button>&nbsp;:
       <kbd id="aide-bas">W</kbd>–<kbd id="aide-bas-fin">!</kbd> et <kbd id="aide-haut">A</kbd>–<kbd id="aide-haut-fin">$</kbd>
-      · <kbd>Espace</kbd> pédale · <kbd>←</kbd> <kbd>→</kbd> octave · <kbd>Échap</kbd> arrêt
+      · <kbd>Espace</kbd> pédale · <kbd>←</kbd> <kbd>→</kbd> octave · <kbd>Entrée</kbd> lecture/pause · <kbd>Échap</kbd> arrêt
     </p>
     <p>Conçu et développé par <strong>Alexandre Besnier</strong> · <a href="https://github.com/aL00ss/piano-python" rel="noopener">code source</a></p>
     <p class="sources">Partitions&nbsp;: <a href="https://www.mutopiaproject.org" rel="noopener">Mutopia Project</a> (domaine public ; CC BY-SA 2.5 pour la Sonate au clair de lune). Son entièrement synthétisé en Python avec NumPy, exécuté dans le navigateur par <a href="https://pyodide.org" rel="noopener">Pyodide</a>.</p>

@@ -8,9 +8,12 @@ son des 88 notes avec NumPy, lit les fichiers MIDI avec mido et programme chaque
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 
-from js import Float32Array, Object, document, fetch, navigator, performance, window
+import numpy as np
+
+from js import Float32Array, Object, Response, Uint8Array, document, fetch, navigator, performance, window
 from pyodide.ffi import create_once_callable, create_proxy, to_js
 
 from piano import morceau as lecture_midi
@@ -28,6 +31,8 @@ RELACHEMENT = 0.09  # constante de temps de l'étouffoir, en secondes
 LARGEUR_MIN_SOURIS = 22  # px par touche blanche
 LARGEUR_MIN_TACTILE = 40
 
+CACHE_PREFIXE = "piano-python-sons-"
+
 _proxys = []  # les fonctions Python confiées au navigateur doivent rester en vie
 
 
@@ -43,6 +48,22 @@ def ecouter(cible, evenement: str, fonction) -> None:
 
 def horloge() -> float:
     return performance.now() / 1000
+
+
+def lire_preference(cle: str, defaut):
+    """Réglage mémorisé d'une visite à l'autre (le navigateur peut refuser le stockage)."""
+    try:
+        valeur = window.localStorage.getItem(f"piano.{cle}")
+        return defaut if valeur is None else json.loads(valeur)
+    except Exception:
+        return defaut
+
+
+def ecrire_preference(cle: str, valeur) -> None:
+    try:
+        window.localStorage.setItem(f"piano.{cle}", json.dumps(valeur))
+    except Exception:
+        pass  # stockage indisponible : le réglage vaut pour cette visite
 
 
 def gain_de_velocite(velocite: float) -> float:
@@ -102,6 +123,9 @@ class Moteur:
 
     def ajouter_note(self, midi: int, son, fe: int) -> None:
         self.tampons[midi] = self._tampon([son], fe)
+
+    def volume(self, valeur: float) -> None:
+        self.sortie.gain.setTargetAtTime(min(1.2, max(0.0, valeur)), self.ctx.currentTime, 0.02)
 
     def demarrer(self) -> None:
         """À appeler depuis un geste de l'utilisateur : les navigateurs bloquent le son avant."""
@@ -216,7 +240,7 @@ class Lecteur:
         self.morceau = None
         self.session = None
         self.minuterie = None
-        self.etat = "arret"  # "arret" | "lecture"
+        self.etat = "arret"  # "arret" | "lecture" | "pause"
         self.vitesse = 1.0
         self.origine_audio = 0.0  # instant audio correspondant à origine_position
         self.origine_position = 0.0
@@ -258,9 +282,26 @@ class Lecteur:
         if self.etat != "arret":
             self._changer("arret")
 
+    def pause(self) -> None:
+        """Met la lecture en pause : la position est conservée."""
+        if self.etat != "lecture":
+            return
+        position = self.position
+        self._couper()
+        self.origine_position = position
+        self._changer("pause")
+
+    def reprendre(self) -> None:
+        """Reprend là où la pause a arrêté la lecture."""
+        if self.etat == "pause":
+            self.jouer(self.origine_position)
+
     def chercher(self, position: float) -> None:
+        """Saute à une position (en secondes) ; en pause, la lecture reprendra de là."""
         if self.etat == "lecture":
             self.jouer(position)
+        elif self.etat == "pause":
+            self.origine_position = max(0.0, min(position, self.duree))
 
     def changer_vitesse(self, valeur: float) -> None:
         vitesse = min(4.0, max(0.25, valeur))
@@ -485,6 +526,21 @@ class Application:
         ecouter(document.querySelector("#disposition"), "click", lambda _e: self.changer_disposition())
         ecouter(self.apercu, "pointerdown", self.apercu_appui)
         ecouter(self.apercu, "pointermove", self.apercu_glisse)
+
+        # barre de lecture
+        self.barre = document.querySelector("#lecture-barre")
+        self.tempo = document.querySelector("#tempo")
+        self.volume = document.querySelector("#volume")
+        self.glisse = False  # l'utilisateur déplace le curseur : l'affichage ne le contrarie pas
+        ecouter(document.querySelector("#lecture-bouton"), "click", lambda _e: self.basculer_lecture())
+        ecouter(self.barre, "input", self.barre_glisse)
+        ecouter(self.barre, "change", self.barre_lachee)
+        ecouter(self.tempo, "input", lambda _e: self.appliquer_tempo(int(self.tempo.value)))
+        ecouter(self.tempo, "change", lambda _e: self.tempo_lache())
+        ecouter(self.volume, "input", lambda _e: self.volume_change())
+        for glissiere in document.querySelectorAll(".glissiere"):
+            # après un réglage à la souris, les flèches reviennent au changement d'octave
+            ecouter(glissiere, "pointerup", lambda e: e.currentTarget.blur())
         self._image = proxy(lambda *_: self.image())
         # Le clavier a été dessiné avant que l'aperçu n'existe : on l'affiche maintenant.
         self.dessiner_apercu()
@@ -523,8 +579,16 @@ class Application:
         if e.ctrlKey or e.metaKey or e.altKey:
             return
         code = e.code
+        sur_glissiere = e.target.tagName == "INPUT"
         if code == "Escape":
             self.lecteur.arreter()
+            return
+        if code in ("Enter", "NumpadEnter"):
+            if sur_glissiere or e.target.matches("button, a"):
+                return
+            e.preventDefault()
+            if not e.repeat:
+                self.basculer_lecture()
             return
         if code == "Space" and not e.target.matches("button, a"):
             e.preventDefault()
@@ -532,6 +596,8 @@ class Application:
                 self.moteur.pedale(True)
             return
         if code in ("ArrowLeft", "ArrowRight"):
+            if sur_glissiere:
+                return  # les flèches règlent la glissière qui a le focus
             e.preventDefault()
             if not e.repeat:
                 self.changer_octave(-1 if code == "ArrowLeft" else 1)
@@ -571,6 +637,7 @@ class Application:
 
     def changer_disposition(self) -> None:
         self.clavier = "qwerty" if self.clavier == "azerty" else "azerty"
+        ecrire_preference("disposition", self.clavier)
         self.maj_etiquettes()
 
     def maj_etiquettes(self) -> None:
@@ -676,6 +743,9 @@ class Application:
         if self.courant and self.courant["id"] == fiche["id"] and self.lecteur.etat == "lecture":
             self.lecteur.arreter()
             return
+        if self.courant and self.courant["id"] == fiche["id"] and self.lecteur.etat == "pause":
+            self.lecteur.reprendre()
+            return
         carte = document.querySelector(f'.carte[data-id="{fiche["id"]}"]')
         carte.classList.add("charge")
         try:
@@ -693,19 +763,76 @@ class Application:
             carte.classList.remove("charge")
 
     def maj_cartes(self, _etat: str = "") -> None:
-        lecture = self.lecteur.etat == "lecture"
+        etat = self.lecteur.etat
         for carte in document.querySelectorAll(".carte"):
-            actuelle = lecture and self.courant is not None and carte.dataset.id == self.courant["id"]
+            actuelle = etat != "arret" and self.courant is not None and carte.dataset.id == self.courant["id"]
             carte.classList.toggle("en-cours", actuelle)
+            carte.classList.toggle("pause", actuelle and etat == "pause")
             carte.setAttribute("aria-pressed", "true" if actuelle else "false")
             if not actuelle:
                 carte.style.removeProperty("--ratio")
-        if lecture:
+        if etat != "arret":
             analyse = self.courant.get("analyse", {})
             tonalite = f" · {analyse['tonalite']}" if analyse.get("tonalite") else ""
-            self.statut_texte.textContent = f"{self.courant['titre']} — {self.courant['compositeur']}{tonalite}"
+            titre = f"{self.courant['titre']} — {self.courant['compositeur']}{tonalite}"
+            self.statut_texte.textContent = titre if etat == "lecture" else f"En pause · {titre}"
         elif self.moteur.pret:
             self.statut_texte.textContent = "Piano prêt"
+        self.maj_barre()
+
+    # ------------------------------------------------------------- barre de lecture
+
+    def basculer_lecture(self) -> None:
+        self.moteur.demarrer()
+        if self.lecteur.etat == "lecture":
+            self.lecteur.pause()
+        elif self.lecteur.etat == "pause":
+            self.lecteur.reprendre()
+        elif self.courant:
+            asyncio.ensure_future(self.choisir(self.courant))
+
+    def maj_barre(self) -> None:
+        etat = self.lecteur.etat
+        actif = etat != "arret"
+        document.querySelector("#lecture").dataset.etat = etat
+        bouton = document.querySelector("#lecture-bouton")
+        bouton.disabled = self.courant is None
+        bouton.setAttribute("aria-label", "Pause" if etat == "lecture" else "Lecture")
+        titre = f"{self.courant['titre']} — {self.courant['compositeur']}" if self.courant else "Choisissez un morceau"
+        document.querySelector("#lecture-titre").textContent = titre
+        self.barre.disabled = not actif
+        duree = (self.lecteur.duree or self.courant["duree"]) if self.courant else 0
+        document.querySelector("#lecture-duree").textContent = formater_duree(duree)
+        if not actif:
+            self.barre.value = 0
+            document.querySelector("#lecture-position").textContent = formater_duree(0)
+
+    def barre_glisse(self, _e) -> None:
+        self.glisse = True
+        position = int(self.barre.value) / 1000 * self.lecteur.duree
+        document.querySelector("#lecture-position").textContent = formater_duree(position)
+
+    def barre_lachee(self, _e) -> None:
+        self.glisse = False
+        self.lecteur.chercher(int(self.barre.value) / 1000 * self.lecteur.duree)
+
+    def appliquer_tempo(self, valeur: int) -> None:
+        self.tempo.value = valeur
+        document.querySelector("#tempo-valeur").textContent = f"{valeur}\u00a0%"
+
+    def tempo_lache(self) -> None:
+        # appliqué au relâchement : la lecture n'est relancée qu'une fois
+        self.lecteur.changer_vitesse(int(self.tempo.value) / 100)
+        ecrire_preference("tempo", int(self.tempo.value))
+
+    def appliquer_volume(self, valeur: int) -> None:
+        self.volume.value = valeur
+        document.querySelector("#volume-valeur").textContent = f"{valeur}\u00a0%"
+        self.moteur.volume(valeur / 100 * 1.2)
+
+    def volume_change(self) -> None:
+        self.appliquer_volume(int(self.volume.value))
+        ecrire_preference("volume", int(self.volume.value))
 
     # ------------------------------------------------------------------------ aperçu
     # Sur un petit écran, le clavier dépasse : une réglette permet de s'y déplacer.
@@ -798,21 +925,82 @@ class Application:
             if carte:
                 carte.style.setProperty("--ratio", str(position / lecteur.duree))
             self.suivre(morceau, position)
+        if lecteur.etat != "arret" and not self.glisse and lecteur.duree:
+            self.barre.value = round(position / lecteur.duree * 1000)
+            texte = formater_duree(position)
+            affichage = document.querySelector("#lecture-position")
+            if affichage.textContent != texte:
+                affichage.textContent = texte
         window.requestAnimationFrame(self._image)
 
     # --------------------------------------------------------------------- démarrage
 
+    async def ouvrir_cache(self):
+        """Cache du navigateur où sont gardés les sons déjà synthétisés.
+
+        Son nom contient l'empreinte de synthese.py : si la synthèse change, les anciens sons
+        sont oubliés. Le cache n'existe que sur une page sécurisée (https ou localhost).
+        """
+        try:
+            caches = getattr(window, "caches", None)
+            if caches is None:
+                return None
+            with open(synthese.__file__, "rb") as source:
+                empreinte = hashlib.sha256(source.read()).hexdigest()[:16]
+            nom = f"{CACHE_PREFIXE}{empreinte}"
+            for ancien in (await caches.keys()).to_py():
+                if ancien.startswith(CACHE_PREFIXE) and ancien != nom:
+                    await caches.delete(ancien)
+            return await caches.open(nom)
+        except Exception:
+            return None
+
+    @staticmethod
+    async def lire_son(cache, midi: int):
+        """Son d'une note gardé en cache (entiers 16 bits), ou None."""
+        if cache is None:
+            return None
+        try:
+            reponse = await cache.match(f"sons/{midi}.pcm")
+            if not reponse:
+                return None
+            octets = (await reponse.arrayBuffer()).to_py()
+            return np.frombuffer(octets, dtype="<i2").astype(np.float32) / 32767
+        except Exception:
+            return None
+
+    @staticmethod
+    async def garder_son(cache, midi: int, son) -> None:
+        if cache is None:
+            return
+        try:
+            entiers = (np.clip(son, -1, 1) * 32767).astype("<i2").tobytes()
+            await cache.put(f"sons/{midi}.pcm", Response.new(Uint8Array.new(to_js(entiers))))
+        except Exception:
+            pass  # cache plein ou refusé : les sons seront recalculés à la prochaine visite
+
     async def synthetiser_le_piano(self) -> None:
-        """NumPy calcule le son des 88 notes, en partant du milieu du clavier."""
+        """NumPy calcule le son des 88 notes, en partant du milieu du clavier.
+
+        Les sons sont ensuite gardés dans le cache du navigateur : aux visites suivantes, le
+        piano est prêt presque aussitôt, au lieu d'être recalculé.
+        """
         # Le ConvolverNode exige la fréquence d'échantillonnage du contexte audio (44,1 ou 48 kHz) :
         # la réponse de salle est donc calculée à cette fréquence, pas à celle des notes.
         fe_salle = int(self.moteur.ctx.sampleRate)
         self.moteur.installer_salle(synthese.reponse_de_salle(fe_salle), fe_salle)
+        cache = await self.ouvrir_cache()
         ordre = sorted(range(NOTE_MIN, NOTE_MAX + 1), key=lambda midi: abs(midi - 62))
         for rang, midi in enumerate(ordre, start=1):
-            self.moteur.ajouter_note(midi, synthese.synthetiser(midi), synthese.FE)
+            son = await self.lire_son(cache, midi)
+            if son is None:
+                son = synthese.synthetiser(midi)
+                await self.garder_son(cache, midi, son)
+                self.statut_texte.textContent = f"Python synthétise le piano… {rang}/{len(ordre)}"
+            else:
+                self.statut_texte.textContent = f"Python prépare le piano… {rang}/{len(ordre)}"
+            self.moteur.ajouter_note(midi, son, synthese.FE)
             self.piano.eteindre(midi, "attente")
-            self.statut_texte.textContent = f"Python synthétise le piano… {rang}/{len(ordre)}"
             self.statut.style.setProperty("--ratio", str(rang / len(ordre)))
             await asyncio.sleep(0)  # rend la main au navigateur après chaque note : la page reste fluide
         self.moteur.pret = True
@@ -821,8 +1009,11 @@ class Application:
         self.pret.set()
 
     async def demarrer(self) -> None:
-        self.clavier = await self.detecter_disposition()
+        self.clavier = lire_preference("disposition", None) or await self.detecter_disposition()
         self.maj_etiquettes()
+        self.appliquer_volume(int(lire_preference("volume", 75)))
+        self.appliquer_tempo(int(lire_preference("tempo", 100)))
+        self.lecteur.changer_vitesse(int(self.tempo.value) / 100)
         window.requestAnimationFrame(self._image)
         reponse = await fetch("midi/catalogue.json")
         self.catalogue = json.loads(await reponse.text())
@@ -840,6 +1031,8 @@ class Application:
             "niveau": moteur.niveau,
             "notesJouees": lambda: moteur.notes_jouees,
             "etatLecteur": lambda: lecteur.etat,
+            "pause": lecteur.pause,
+            "reprendre": lecteur.reprendre,
             "position": lambda: lecteur.position,
             "duree": lambda: lecteur.duree,
             "vitesse": lecteur.changer_vitesse,

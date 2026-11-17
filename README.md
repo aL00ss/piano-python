@@ -8,7 +8,7 @@ classiques, du début à la fin.
 
 👉 **Démo en ligne : <https://al00ss.github.io/piano-python/>**
 
-La page est volontairement sobre : les boutons des morceaux, et le clavier.
+La page est volontairement sobre : les boutons des morceaux, une barre de lecture et le clavier.
 
 Le son n'utilise **aucun enregistrement** : chaque note est calculée par NumPy au chargement
 de la page. Python s'exécute dans le navigateur grâce à [Pyodide](https://pyodide.org)
@@ -26,7 +26,9 @@ de la page. Python s'exécute dans le navigateur grâce à [Pyodide](https://pyo
 | 6 | Fantaisie-Impromptu, op. 66 | Chopin | 4:36 |
 | 7 | Prélude en do majeur | Bach | 2:08 |
 
-Un clic sur un bouton lance le morceau ; un second clic (ou `Échap`) l'arrête. Chaque morceau
+Un clic sur un bouton lance le morceau ; un second clic (ou `Échap`) l'arrête. La barre de lecture
+met en pause et reprend (`Entrée`), permet de se déplacer dans le morceau et règle le tempo
+(50 à 150 %) et le volume ; ces réglages et la disposition du clavier sont mémorisés. Chaque morceau
 est joué **au tempo de sa partition**, changements de mouvement, points d'orgue et ralentis
 compris, avec ses nuances et sa pédale. On peut jouer par-dessus pendant la lecture.
 
@@ -37,6 +39,7 @@ compris, avec ses nuances et sa pédale. On peut jouer par-dessus pendant la lec
 | Clavier | deux rangées de touches : `W`…`!` (octave grave) et `A`…`$` (octave aiguë), les touches noires sur la rangée du dessus |
 | Souris, doigts | clic ou toucher, plusieurs doigts à la fois, glissando ; plus on frappe bas sur la touche, plus la note est forte |
 | `Espace` | pédale forte |
+| `Entrée` | lecture / pause du morceau |
 | `←` `→` | changer d'octave |
 | Clavier MIDI | reconnu automatiquement s'il est déjà autorisé dans le navigateur |
 
@@ -63,8 +66,12 @@ navigateur), `pygame.midi` et `python-rtmidi` (pas de version WebAssembly).
   produisent un lent battement ;
 - un bref bruit de marteau accompagne l'attaque.
 
-Chaque partiel est une exponentielle complexe amortie, prolongée bloc par bloc par un produit
-matriciel : les 88 notes sont calculées en quelques secondes.
+Chaque partiel est une exponentielle complexe amortie, prolongée bloc par bloc par une
+contraction `np.einsum` (dans le navigateur, NumPy n'a pas de BLAS : `einsum` y est plusieurs fois
+plus rapide que le produit matriciel). Les 88 notes sont calculées en environ 2 secondes dans
+Chrome ou Edge, une vingtaine dans Firefox. Elles sont ensuite gardées dans le cache du
+navigateur : aux visites suivantes, seuls Python et NumPy sont à charger. Le cache porte
+l'empreinte de `synthese.py` : toute modification de la synthèse le renouvelle.
 
 ## Les fichiers MIDI
 
