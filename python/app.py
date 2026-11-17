@@ -32,6 +32,7 @@ LARGEUR_MIN_SOURIS = 22  # px par touche blanche
 LARGEUR_MIN_TACTILE = 40
 
 CACHE_PREFIXE = "piano-python-sons-"
+MESSAGE_SANS_SON = "Aucune sortie audio utilisable : le son reviendra tout seul dès qu'une sortie sera disponible."
 
 _proxys = []  # les fonctions Python confiées au navigateur doivent rester en vie
 
@@ -79,11 +80,26 @@ class Moteur:
     """Joue les notes synthétisées par NumPy à travers la Web Audio API."""
 
     def __init__(self) -> None:
+        self.tampons = {}  # midi -> AudioBuffer (utilisable par n'importe quel contexte audio)
+        self.voix = {}  # midi -> voix du jeu en direct
+        self.enfoncees: set[int] = set()
+        self.tenues: set[int] = set()
+        self.pedale_enfoncee = False
+        self.notes_jouees = 0
+        self.pret = False
+        self.reconnexions = 0
+        self.niveau_volume = 0.9
+        self.salle = False  # la réverbération a-t-elle été installée ?
+        self._onde = Float32Array.new(1024)
+        self._construire()
+
+    def _construire(self) -> None:
+        """Crée le contexte audio et la chaîne d'effets."""
         constructeur = getattr(window, "AudioContext", None) or window.webkitAudioContext
         self.ctx = constructeur.new(to_js({"latencyHint": "interactive"}, dict_converter=Object.fromEntries))
         c = self.ctx
         self.sortie = c.createGain()
-        self.sortie.gain.value = 0.9
+        self.sortie.gain.value = self.niveau_volume
         compresseur = c.createDynamicsCompressor()
         compresseur.threshold.value = -16
         compresseur.ratio.value = 3
@@ -103,14 +119,30 @@ class Moteur:
         self.bus.connect(envoi)
         envoi.connect(self.reverb)
 
-        self.tampons = {}  # midi -> AudioBuffer
-        self.voix = {}  # midi -> voix du jeu en direct
-        self.enfoncees: set[int] = set()
-        self.tenues: set[int] = set()
-        self.pedale_enfoncee = False
-        self.notes_jouees = 0
-        self.pret = False
-        self._onde = Float32Array.new(1024)
+    def reconnecter(self) -> None:
+        """Repart d'un contexte audio neuf, quand la sortie audio change.
+
+        Un contexte créé sans sortie utilisable (Firefox, par exemple) peut rester suspendu pour
+        toujours. Les sons déjà synthétisés sont réutilisés ; seule la réverbération est recalculée,
+        car elle doit avoir la fréquence d'échantillonnage du nouveau contexte.
+        """
+        ancien = self.ctx
+        self.voix.clear()
+        self.enfoncees.clear()
+        self.tenues.clear()
+        self._construire()
+        if self.salle:
+            fe = int(self.ctx.sampleRate)
+            self.installer_salle(synthese.reponse_de_salle(fe), fe)
+        self.reconnexions += 1
+        try:
+            ancien.close()
+        except Exception:
+            pass
+
+    @property
+    def actif(self) -> bool:
+        return self.ctx.state == "running"
 
     def _tampon(self, canaux, fe: int):
         tampon = self.ctx.createBuffer(len(canaux), len(canaux[0]), fe)
@@ -120,17 +152,22 @@ class Moteur:
 
     def installer_salle(self, reponse, fe: int) -> None:
         self.reverb.buffer = self._tampon(list(reponse), fe)
+        self.salle = True
 
     def ajouter_note(self, midi: int, son, fe: int) -> None:
         self.tampons[midi] = self._tampon([son], fe)
 
     def volume(self, valeur: float) -> None:
-        self.sortie.gain.setTargetAtTime(min(1.2, max(0.0, valeur)), self.ctx.currentTime, 0.02)
+        self.niveau_volume = min(1.2, max(0.0, valeur))
+        self.sortie.gain.setTargetAtTime(self.niveau_volume, self.ctx.currentTime, 0.02)
 
     def demarrer(self) -> None:
         """À appeler depuis un geste de l'utilisateur : les navigateurs bloquent le son avant."""
         if self.ctx.state != "running":
-            self.ctx.resume()
+            try:
+                self.ctx.resume()
+            except Exception:
+                pass
 
     def maintenant(self) -> float:
         return self.ctx.currentTime
@@ -518,6 +555,14 @@ class Application:
         self.apercu_dessine = 0
         self.statut = document.querySelector("#statut")
         self.statut_texte = document.querySelector("#statut-texte")
+        # sortie audio : voir verifier_sortie()
+        self.son_voulu = False
+        self.son_bloque = False
+        self.en_attente: dict | None = None
+        self.reprendre_apres = False
+        self.verification = None
+        self.relancer = False
+        self.derniere_reconnexion = 0.0
 
         ecouter(document, "keydown", self.touche_enfoncee)
         ecouter(document, "keyup", self.touche_relachee)
@@ -548,7 +593,7 @@ class Application:
     # ---------------------------------------------------------------- jeu en direct
 
     def attaquer(self, midi: int, velocite: float = 0.75) -> None:
-        self.moteur.demarrer()
+        self.reveiller_le_son()
         self.moteur.attaquer(midi, velocite)
         self.appuis[midi] = self.appuis.get(midi, 0) + 1
         self.piano.allumer(midi, "active")
@@ -717,7 +762,7 @@ class Application:
         bouton.title = f"{fiche['oeuvre']} ({fiche['annee']})"
 
         def clic(_e, fiche=fiche):
-            self.moteur.demarrer()  # dans le geste de l'utilisateur
+            self.reveiller_le_son()  # dans le geste de l'utilisateur
             asyncio.ensure_future(self.choisir(fiche))
 
         ecouter(bouton, "click", clic)
@@ -753,6 +798,15 @@ class Application:
             await self.pret.wait()
             if demande != self.demande:
                 return
+            # Sans sortie audio utilisable, on ne reste pas figé : le morceau est mis en attente
+            # et démarrera tout seul dès que le son sera revenu.
+            if not await self.essayer_le_son(2.0):
+                if demande == self.demande:
+                    self.son_indisponible(fiche)
+                return
+            if demande != self.demande:
+                return
+            self.en_attente = None
             self.courant = fiche
             self.lecteur.charger(morceau)
             self.lecteur.jouer(0)
@@ -771,7 +825,10 @@ class Application:
             carte.setAttribute("aria-pressed", "true" if actuelle else "false")
             if not actuelle:
                 carte.style.removeProperty("--ratio")
-        if etat != "arret":
+        document.body.classList.toggle("sans-son", self.son_bloque)
+        if self.son_bloque:
+            self.statut_texte.textContent = MESSAGE_SANS_SON
+        elif etat != "arret":
             analyse = self.courant.get("analyse", {})
             tonalite = f" · {analyse['tonalite']}" if analyse.get("tonalite") else ""
             titre = f"{self.courant['titre']} — {self.courant['compositeur']}{tonalite}"
@@ -782,8 +839,103 @@ class Application:
 
     # ------------------------------------------------------------- barre de lecture
 
-    def basculer_lecture(self) -> None:
+    # ---------------------------------------------------------------- sortie audio
+    # Le piano s'adapte tout seul aux changements de sortie audio (casque branché, sortie changée
+    # dans le système…). Si le son ne peut pas démarrer, il le dit, garde le morceau demandé et
+    # réessaie ; un contexte audio resté bloqué est remplacé par un neuf.
+
+    def reveiller_le_son(self) -> None:
+        """À chaque geste : tente de démarrer le son, et relance la vérification s'il manque."""
+        self.son_voulu = True
         self.moteur.demarrer()
+        if self.son_bloque:
+            self.verifier_sortie()
+
+    async def essayer_le_son(self, attente: float = 1.5) -> bool:
+        """Vrai si le son tourne, après au plus `attente` secondes."""
+        if self.moteur.actif:
+            return True
+        self.moteur.demarrer()
+        fin = horloge() + attente
+        while horloge() < fin:
+            await asyncio.sleep(0.1)
+            if self.moteur.actif:
+                return True
+        return self.moteur.actif
+
+    def son_indisponible(self, fiche: dict | None = None) -> None:
+        if fiche:
+            self.en_attente = fiche
+        if not self.son_bloque:
+            self.son_bloque = True
+            self.maj_cartes()
+
+    def son_retabli(self) -> None:
+        if not self.son_bloque:
+            return
+        self.son_bloque = False
+        self.maj_cartes()
+        if self.reprendre_apres:
+            self.reprendre_apres = False
+            self.lecteur.reprendre()
+        if self.en_attente:
+            fiche, self.en_attente = self.en_attente, None
+            asyncio.ensure_future(self.choisir(fiche))
+
+    def verifier_sortie(self, automatique: bool = False) -> None:
+        """Vérifie que le son tourne ; sinon réessaie, puis reconstruit le contexte audio.
+
+        Une vérification automatique (sans geste ni changement de sortie) reconstruit moins souvent.
+        """
+        if self.verification is not None and not self.verification.done():
+            # un branchement ou un geste pendant une vérification n'est pas perdu : une
+            # vérification complète suivra
+            if not automatique:
+                self.relancer = True
+            return
+        self.verification = asyncio.ensure_future(self._verifier_sortie(automatique))
+
+    async def _verifier_sortie(self, automatique: bool) -> None:
+        try:
+            await self._verifier_une_fois(automatique)
+        finally:
+            if self.relancer:
+                self.relancer = False
+                if not self.moteur.actif:
+                    self.verification = asyncio.ensure_future(self._verifier_sortie(False))
+
+    async def _verifier_une_fois(self, automatique: bool) -> None:
+        if await self.essayer_le_son():
+            self.son_retabli()
+            return
+        if not self.moteur.pret or horloge() - self.derniere_reconnexion < (15 if automatique else 3):
+            self.son_indisponible()
+            return
+        self.derniere_reconnexion = horloge()
+        # L'horloge va changer : la lecture est mise en pause pour reprendre au même endroit.
+        if self.lecteur.etat == "lecture":
+            self.lecteur.pause()
+            self.reprendre_apres = True
+        self.moteur.reconnecter()
+        if await self.essayer_le_son():
+            self.son_retabli()
+        else:
+            self.son_indisponible()
+
+    def surveiller_sortie(self) -> None:
+        peripheriques = getattr(navigator, "mediaDevices", None)
+        if peripheriques is not None and hasattr(peripheriques, "addEventListener"):
+            ecouter(peripheriques, "devicechange", lambda _e: self.son_voulu and self.verifier_sortie())
+
+        def filet(*_):
+            # la sortie peut disparaître ou revenir sans événement
+            if self.son_voulu and self.moteur.pret and not self.moteur.actif:
+                self.verifier_sortie(automatique=True)
+
+        window.setInterval(proxy(filet), 2000)
+
+    def basculer_lecture(self) -> None:
+        self.reveiller_le_son()
         if self.lecteur.etat == "lecture":
             self.lecteur.pause()
         elif self.lecteur.etat == "pause":
@@ -1021,6 +1173,7 @@ class Application:
         for rang, fiche in enumerate(self.catalogue):
             cartes.append(self.creer_carte(fiche, rang))
         asyncio.ensure_future(self.brancher_midi())
+        self.surveiller_sortie()
         await self.synthetiser_le_piano()
 
     def crochet_de_test(self):
@@ -1032,6 +1185,8 @@ class Application:
             "notesJouees": lambda: moteur.notes_jouees,
             "etatLecteur": lambda: lecteur.etat,
             "pause": lecteur.pause,
+            "sonBloque": lambda: self.son_bloque,
+            "reconnexions": lambda: moteur.reconnexions,
             "reprendre": lecteur.reprendre,
             "position": lambda: lecteur.position,
             "duree": lambda: lecteur.duree,

@@ -28,7 +28,11 @@ de la page. Python s'exécute dans le navigateur grâce à [Pyodide](https://pyo
 
 Un clic sur un bouton lance le morceau ; un second clic (ou `Échap`) l'arrête. La barre de lecture
 met en pause et reprend (`Entrée`), permet de se déplacer dans le morceau et règle le tempo
-(50 à 150 %) et le volume ; ces réglages et la disposition du clavier sont mémorisés. Chaque morceau
+(50 à 150 %) et le volume ; ces réglages et la disposition du clavier sont mémorisés.
+
+Le piano s'adapte tout seul aux changements de **sortie audio** (casque branché, sortie changée
+dans le système) : si aucune sortie n'est utilisable, il l'indique, garde le morceau demandé et
+réessaie ; dès que le son revient, le morceau démarre ou reprend là où il s'était arrêté. Chaque morceau
 est joué **au tempo de sa partition**, changements de mouvement, points d'orgue et ralentis
 compris, avec ses nuances et sa pédale. On peut jouer par-dessus pendant la lecture.
 
