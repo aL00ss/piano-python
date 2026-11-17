@@ -90,12 +90,15 @@ python/piano/analyse.py       tonalité, tessiture, polyphonie
 midi/                         les sept morceaux
 outils/                       préparation des morceaux
 vendor/                       paquet mido
+tests/                        tests unitaires
 ```
 
 ## En local
 
 ```bash
-python -m http.server 8000    # puis ouvrir http://localhost:8000
+python -m http.server 8000                  # puis ouvrir http://localhost:8000
+pip install numpy mido                      # pour les tests
+python -m unittest discover -s tests -v     # 17 tests
 ```
 
 > Le site doit être servi en HTTP (pas ouvert en `file://`).

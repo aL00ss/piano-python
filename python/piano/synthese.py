@@ -88,8 +88,10 @@ def synthetiser(midi: int, fe: int = FE) -> np.ndarray:
     son = np.zeros(n)
     for debut in range(0, n, BLOC):
         m = min(BLOC, n - debut)
-        # partie imaginaire de coef × puissances, sommée sur tous les termes
-        son[debut:debut + m] = coef.real @ imag[:, :m] + coef.imag @ reel[:, :m]
+        # partie imaginaire de coef × puissances, sommée sur tous les termes. einsum plutôt que
+        # « @ » : dans le navigateur, NumPy n'a pas de BLAS et son produit matriciel générique
+        # est plusieurs fois plus lent (résultat identique à l'échantillon près).
+        son[debut:debut + m] = np.einsum("k,km->m", coef.real, imag[:, :m]) + np.einsum("k,km->m", coef.imag, reel[:, :m])
         coef = coef * saut
         vivants = np.abs(coef) > 1e-7  # les partiels éteints ne sont plus calculés
         if not vivants.all():

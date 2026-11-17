@@ -1,4 +1,4 @@
-"""Prépare les cinq morceaux joués par le piano.
+"""Prépare les sept morceaux joués par le piano.
 
 Les fichiers de `outils/sources/` viennent du Mutopia Project (gravures LilyPond).
 Ils contiennent les bonnes notes, mais sous une forme « mécanique » : reprises non

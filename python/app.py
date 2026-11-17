@@ -11,7 +11,7 @@ import asyncio
 import json
 
 from js import Float32Array, Object, document, fetch, navigator, performance, window
-from pyodide.ffi import create_proxy, to_js
+from pyodide.ffi import create_once_callable, create_proxy, to_js
 
 from piano import morceau as lecture_midi
 from piano import synthese
@@ -204,7 +204,7 @@ class Session:
         self.ouverte = False
         self.gain.gain.setTargetAtTime(0, self.moteur.ctx.currentTime, 0.02)
         gain = self.gain
-        window.setTimeout(create_proxy(lambda: gain.disconnect()), 400)
+        window.setTimeout(create_once_callable(lambda: gain.disconnect()), 400)
 
 
 class Lecteur:
@@ -302,7 +302,7 @@ class Lecteur:
             window.clearInterval(self.minuterie)
             self.minuterie = None
             session, self.session = self.session, None
-            window.setTimeout(create_proxy(lambda: session.arreter()), 1500)
+            window.setTimeout(create_once_callable(lambda: session.arreter()), 1500)
             self.origine_position = 0.0
             self._changer("arret")
 
@@ -486,6 +486,8 @@ class Application:
         ecouter(self.apercu, "pointerdown", self.apercu_appui)
         ecouter(self.apercu, "pointermove", self.apercu_glisse)
         self._image = proxy(lambda *_: self.image())
+        # Le clavier a été dessiné avant que l'aperçu n'existe : on l'affiche maintenant.
+        self.dessiner_apercu()
 
     # ---------------------------------------------------------------- jeu en direct
 
@@ -802,15 +804,17 @@ class Application:
 
     async def synthetiser_le_piano(self) -> None:
         """NumPy calcule le son des 88 notes, en partant du milieu du clavier."""
-        self.moteur.installer_salle(synthese.reponse_de_salle(), synthese.FE)
+        # Le ConvolverNode exige la fréquence d'échantillonnage du contexte audio (44,1 ou 48 kHz) :
+        # la réponse de salle est donc calculée à cette fréquence, pas à celle des notes.
+        fe_salle = int(self.moteur.ctx.sampleRate)
+        self.moteur.installer_salle(synthese.reponse_de_salle(fe_salle), fe_salle)
         ordre = sorted(range(NOTE_MIN, NOTE_MAX + 1), key=lambda midi: abs(midi - 62))
         for rang, midi in enumerate(ordre, start=1):
             self.moteur.ajouter_note(midi, synthese.synthetiser(midi), synthese.FE)
             self.piano.eteindre(midi, "attente")
-            if rang % 4 == 0 or rang == len(ordre):
-                self.statut_texte.textContent = f"Python synthétise le piano… {rang}/{len(ordre)}"
-                self.statut.style.setProperty("--ratio", str(rang / len(ordre)))
-                await asyncio.sleep(0)  # rend la main au navigateur
+            self.statut_texte.textContent = f"Python synthétise le piano… {rang}/{len(ordre)}"
+            self.statut.style.setProperty("--ratio", str(rang / len(ordre)))
+            await asyncio.sleep(0)  # rend la main au navigateur après chaque note : la page reste fluide
         self.moteur.pret = True
         document.body.classList.add("pret")
         self.statut_texte.textContent = "Piano prêt"
